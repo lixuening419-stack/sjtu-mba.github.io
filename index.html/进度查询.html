@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>学位论文进度导航</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f7f7f7; color: #333; margin: 0; padding: 15px; }
+        .container { max-width: 100%; margin: 0 auto; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        h1 { text-align: center; color: #b51e29; font-size: 22px; margin-bottom: 25px;}
+        .form-group { margin-bottom: 20px; }
+        label { display: block; font-weight: bold; margin-bottom: 8px; font-size: 15px; color: #555;}
+        select { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; background-color: #fafafa; box-sizing: border-box; appearance: none;}
+        .result-card { background-color: #f0f7ff; border-left: 5px solid #005a9e; padding: 15px; margin-top: 25px; border-radius: 8px; display: none; }
+        .result-card h3 { margin-top: 0; color: #005a9e; font-size: 18px; line-height: 1.4;}
+        .result-card p { font-size: 15px; line-height: 1.5; margin: 8px 0; }
+        .delay-warning { background-color: #fff8e6; border-left: 5px solid #ffaa00; padding: 15px; margin-top: 15px; border-radius: 8px; display: none;}
+        .delay-warning h4 { margin-top: 0; color: #b37700; font-size: 16px;}
+        .delay-warning p { font-size: 14px; margin: 5px 0; color: #666;}
+        .tag { display: inline-block; padding: 2px 8px; background-color: #e2e8f0; border-radius: 4px; font-size: 12px; margin-bottom: 10px; color: #4a5568;}
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🎓 学位论文进度导航器</h1>
+    
+    <div class="form-group">
+        <label for="batchSelect">1. 选择你的班级批次：</label>
+        <select id="batchSelect" onchange="updateStages()">
+            <option value="">-- 点击选择班级 --</option>
+            <option value="2024_pt">2024级非全日制 (26年12月答辩)</option>
+            <option value="2024_clgo">2024级CLGO (26年12月答辩)</option>
+            <option value="2025_imba">2025级IMBA/SG (27年5月答辩)</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label for="stageSelect">2. 你最新「已完成」的步骤是：</label>
+        <select id="stageSelect" onchange="calculateNext()" disabled>
+            <option value="">-- 请先选择班级 --</option>
+        </select>
+    </div>
+
+    <div id="resultCard" class="result-card">
+        <span class="tag" id="stepNumber"></span>
+        <h3><span id="nextTaskName"></span></h3>
+        <p><strong>📅 截止时间：</strong> <span id="nextTaskTime" style="color: #d9534f; font-weight: bold;"></span></p>
+        <p><strong>📝 核心任务：</strong> <span id="nextTaskAction"></span></p>
+        <p style="font-size: 13px; color: #666; margin-top: 12px;">💡 提示：<span id="nextTaskNote"></span></p>
+    </div>
+
+    <div id="delayWarning" class="delay-warning">
+        <h4>⚠️ 延期预警机制</h4>
+        <p>如果未能在上述时间完成，将自动顺延至下一批次（27年5月答辩）。</p>
+        <p>顺延后，该步骤的提交时间预计为：<strong id="delayedTime" style="color: #d9534f;"></strong></p>
+    </div>
+</div>
+
+<script>
+    // 通用的 6-19 步数据（用于 PT 和 CLGO 共享）
+    const sharedSteps6To19 = [
+        { id: 6, name: "论文撰写", time: "2026.06月 - 07月", action: "完成初稿撰写", note: "遵循小题深做原则，准备对接非全日制进度" },
+        { id: 7, name: "初稿提交及审核", time: "提交: 07.01前 / 审核: 07.06前", action: "初稿上传MBA系统并由导师审核", note: "延期学生需从初稿重新开始提交" },
+        { id: 8, name: "终稿及中期准备", time: "2026.09.01 (周二) 前", action: "终稿自查重≤15%，双系统提交", note: "需删除导师及个人信息脱敏" },
+        { id: 9, name: "终稿审核", time: "2026.09.07 (周一) 前", action: "提醒导师完成双系统审核", note: "未通过需修改重提，否则影响中期答辩" },
+        { id: 10, name: "预答辩暨中期检查", time: "深圳09.17-18 / 上海09.21-23", action: "现场答辩15分钟，拍摄学位照", note: "未通过中期检查无法进入后续环节" },
+        { id: 11, name: "评阅稿准备及提交", time: "2026.10.12 (周一) 前", action: "评阅稿脱敏处理并上传MBA系统", note: "格式需严格遵循要求" },
+        { id: 12, name: "评阅稿双重审核", time: "管理员10.14前 / 导师10.16前", action: "关注审核结果并及时修改", note: "两者均通过方可进入下一步" },
+        { id: 13, name: "盲审抽检稿提交", time: "2026.10.19 (周一) 前", action: "数字交大系统完成查重申请", note: "查重率需≤30%方可通过" },
+        { id: 14, name: "盲审抽检", time: "2026.10.26 (周一) 当天", action: "系统点击盲审抽检并查询结果", note: "延期学生已抽过无需再次抽检" },
+        { id: 15, name: "纸质版材料提交", time: "2026.11.01 - 11.02", action: "提交3本胶装纸质论文及辅助材料", note: "格式与电子稿一致，无个人及导师信息" },
+        { id: 16, name: "论文评阅", time: "2026.11月 - 12月", action: "盲审评阅，根据意见修改", note: "两位评阅老师均同意方可答辩" },
+        { id: 17, name: "答辩申请提交", time: "2026.12.11 (周五) 全天", action: "数字交大系统填写信息、上传论文", note: "信息填写错误将影响答辩安排" },
+        { id: 18, name: "正式答辩", time: "2026.12.16 - 12.18 (暂定)", action: "现场陈述30分钟，严禁透露导师姓名", note: "答辩时间不可调整，无线上答辩" },
+        { id: 19, name: "后续事宜 (归档与离校)", time: "正式答辩后1周内", action: "提交申请表、登记表，办理离校", note: "逾期将影响学位申请" }
+    ];
+
+    const database = {
+        // 2024级非全日制：独有的 1-5 步 + 共享的 6-19 步
+        "2024_pt": [
+            { id: 1, name: "导师遴选", time: "2025.12.05 - 12.25", action: "MBA系统内完成导师选择", note: "逾期未遴选将由学院统一分配" },
+            { id: 2, name: "开题动员", time: "2026.01.10 (周六 18:30)", action: "参加论文全流程说明会", note: "务必到场，缺席影响后续推进" },
+            { id: 3, name: "开题报告准备与提交", time: "2026.03.04 (周三) 前", action: "双系统提交开题报告", note: "需经导师线下确认，MBA与数字交大双系统提交" },
+            { id: 4, name: "开题报告审核", time: "2026.03.09 (周一) 前", action: "提醒导师完成双系统审核", note: "预留导师3-5个工作日审核时间" },
+            { id: 5, name: "开题答辩", time: "深圳03.14-15 / 上海04.01-03", action: "现场答辩、陈述10分钟", note: "携带4份纸质报告，1票不通过直接延期" },
+            ...sharedSteps6To19 // 自动并入 6-19 步
+        ],
+        
+        // 2024级CLGO：按照你的指正，前5步独立时间线，6步起并轨非全日制
+        "2024_clgo": [
+            { id: 1, name: "导师遴选", time: "2025.12.05 - 2026.03.05", action: "MBA系统内完成导师选择", note: "结合自身选题需求选择" },
+            { id: 2, name: "开题动员", time: "2026.01.10 (周六 18:30)", action: "参加论文全流程说明会", note: "务必到场" },
+            { id: 3, name: "开题报告准备与提交", time: "2026.05.06 (周三) 前", action: "双系统提交开题报告", note: "逾期直接延期" },
+            { id: 4, name: "开题报告审核", time: "2026.05.11 (周一) 前", action: "提醒导师完成双系统审核", note: "预留审核时间" },
+            { id: 5, name: "开题答辩", time: "2026.06.08 (周一)", action: "现场答辩", note: "记录评委意见" },
+            ...sharedSteps6To19 // 完美并轨，与非全日制一同参加 12 月答辩
+        ],
+        
+        // 延期退路批次（2025级IMBA）
+        "2025_imba": [
+            { id: 1, name: "导师遴选", time: "暂未公布", action: "MBA系统内操作", note: "" },
+            { id: 2, name: "开题动员", time: "暂未公布", action: "参加说明会", note: "" },
+            { id: 3, name: "开题报告准备与提交", time: "2027年01月 (暂定)", action: "双系统提交", note: "" },
+            { id: 4, name: "开题报告审核", time: "2027年01月 (暂定)", action: "导师审核", note: "" },
+            { id: 5, name: "开题答辩", time: "2027年03月 (暂定)", action: "现场答辩", note: "" },
+            { id: 6, name: "论文撰写", time: "2027.06月 - 11月", action: "初稿撰写", note: "" },
+            { id: 7, name: "初稿提交及审核", time: "2027年11月 (暂定)", action: "系统提交", note: "" },
+            { id: 8, name: "终稿及中期准备", time: "2027年01月 (暂定)", action: "双系统提交", note: "" },
+            { id: 9, name: "终稿审核", time: "2027年01月 (暂定)", action: "导师审核", note: "" },
+            { id: 10, name: "预答辩暨中期检查", time: "2027年03月 (暂定)", action: "现场答辩", note: "" },
+            { id: 11, name: "评阅稿准备及提交", time: "2027年03月 (暂定)", action: "脱敏上传", note: "" },
+            { id: 12, name: "评阅稿双重审核", time: "2027年03月 (暂定)", action: "管理员与导师审核", note: "" },
+            { id: 13, name: "盲审抽检稿提交", time: "2027年03月 (暂定)", action: "查重申请", note: "" },
+            { id: 14, name: "盲审抽检", time: "2027年03月 (暂定)", action: "系统抽检", note: "" },
+            { id: 15, name: "纸质版材料提交", time: "2027年04月 (暂定)", action: "提交辅助材料", note: "" },
+            { id: 16, name: "论文评阅", time: "2027.04月 - 05月", action: "根据意见修改", note: "" },
+            { id: 17, name: "答辩申请提交", time: "2027年05月 (暂定)", action: "系统申请", note: "" },
+            { id: 18, name: "正式答辩", time: "2027年05月 (暂定)", action: "现场答辩", note: "" },
+            { id: 19, name: "后续事宜 (归档与离校)", time: "2027年05月以后", action: "归档", note: "" }
+        ]
+    };
+
+    const batchSelect = document.getElementById('batchSelect');
+    const stageSelect = document.getElementById('stageSelect');
+    const resultCard = document.getElementById('resultCard');
+    const delayWarning = document.getElementById('delayWarning');
+
+    function updateStages() {
+        const batch = batchSelect.value;
+        stageSelect.innerHTML = '<option value="">-- 请选择 --</option>';
+        resultCard.style.display = 'none';
+        delayWarning.style.display = 'none';
+
+        if (batch) {
+            stageSelect.disabled = false;
+            stageSelect.innerHTML += `<option value="-1">阶段 0：刚刚开始，还未进行任何步骤</option>`;
+            
+            const stages = database[batch];
+            stages.forEach((stage, index) => {
+                stageSelect.innerHTML += `<option value="${index}">已完成 第${stage.id}步：${stage.name}</option>`;
+            });
+        } else {
+            stageSelect.disabled = true;
+        }
+    }
+
+    function calculateNext() {
+        const batch = batchSelect.value;
+        const selectedIndex = parseInt(stageSelect.value);
+
+        if (isNaN(selectedIndex)) {
+            resultCard.style.display = 'none';
+            delayWarning.style.display = 'none';
+            return;
+        }
+
+        const stages = database[batch];
+        const nextIndex = selectedIndex + 1;
+
+        if (nextIndex < stages.length) {
+            const nextTask = stages[nextIndex];
+            
+            document.getElementById('stepNumber').innerText = `下一步是：第 ${nextTask.id} 步`;
+            document.getElementById('nextTaskName').innerText = nextTask.name;
+            document.getElementById('nextTaskTime').innerText = nextTask.time;
+            document.getElementById('nextTaskAction').innerText = nextTask.action;
+            document.getElementById('nextTaskNote').innerText = nextTask.note;
+            resultCard.style.display = 'block';
+
+            if (batch === '2024_pt' || batch === '2024_clgo') {
+                const delayedTask = database['2025_imba'].find(t => t.id === nextTask.id);
+                if (delayedTask && delayedTask.time) {
+                    document.getElementById('delayedTime').innerText = delayedTask.time;
+                    delayWarning.style.display = 'block';
+                } else {
+                    delayWarning.style.display = 'none';
+                }
+            } else {
+                delayWarning.style.display = 'none';
+            }
+
+        } else {
+            document.getElementById('stepNumber').innerText = "🏁 最终阶段";
+            document.getElementById('nextTaskName').innerText = "恭喜！所有流程已完成";
+            document.getElementById('nextTaskTime').innerText = "祝贺毕业！";
+            document.getElementById('nextTaskAction').innerText = "准备迎接新的人生阶段。";
+            document.getElementById('nextTaskNote').innerText = "无需额外操作";
+            resultCard.style.display = 'block';
+            delayWarning.style.display = 'none';
+        }
+    }
+</script>
+
+</body>
+</html>
